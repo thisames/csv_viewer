@@ -1,0 +1,11 @@
+[package]
+name = "csv_viwer"
+version = "0.1.0"
+edition = "2024"
+description = "Visualizador moderno de CSV e planilhas"
+
+[[bin]]
+name = "csv_viwer"
+path = "src/main.rs"
+
+[dependencies]
