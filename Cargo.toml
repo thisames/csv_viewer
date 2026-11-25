@@ -20,3 +20,7 @@ rayon = "1.12"
 memchr = "2.8"
 rustc-hash = "2"
 png = "0.18"
+
+[features]
+# Prints automáticos da janela para testes visuais (ver src/devshot.rs).
+devshot = []
