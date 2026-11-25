@@ -1,4 +1,4 @@
-//! Leitura de arquivos (CSV/TSV/TXT) em segundo plano.
+//! Leitura de arquivos (CSV/TSV/TXT e planilhas Excel/ODS) em segundo plano.
 
 use std::borrow::Cow;
 use std::fs::File;
@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::time::Instant;
 
+use calamine::{Data, Reader};
 use encoding_rs::{Encoding, UTF_8};
 use rayon::prelude::*;
 
@@ -21,6 +22,8 @@ pub struct LoadOptions {
     pub delimiter: Option<u8>,
     /// `None` = detectar automaticamente.
     pub encoding: Option<&'static Encoding>,
+    /// Planilha a abrir (arquivos Excel/ODS). `None` = a primeira.
+    pub sheet: Option<String>,
 }
 
 impl Default for LoadOptions {
@@ -29,6 +32,7 @@ impl Default for LoadOptions {
             has_header: true,
             delimiter: None,
             encoding: None,
+            sheet: None,
         }
     }
 }
@@ -63,6 +67,14 @@ pub struct Loaded {
 
 const CANCELLED: &str = "Leitura cancelada.";
 
+pub fn is_workbook_path(path: &Path) -> bool {
+    let ext = extension(path);
+    matches!(
+        ext.as_str(),
+        "xlsx" | "xlsm" | "xlsb" | "xls" | "xla" | "xlam" | "ods"
+    )
+}
+
 fn extension(path: &Path) -> String {
     path.extension()
         .and_then(|e| e.to_str())
@@ -79,14 +91,20 @@ pub fn load(path: &Path, opts: &LoadOptions, progress: &Progress) -> Result<Load
     }
     progress.total.store(meta.len(), Ordering::Relaxed);
 
-    let mut loaded = load_delimited(path, opts, progress, meta.len())?;
+    let workbook = is_workbook_path(path) || has_workbook_magic(path);
+    let mut loaded = if workbook {
+        load_workbook(path, opts, progress)?
+    } else {
+        load_delimited(path, opts, progress, meta.len())?
+    };
     if progress.cancelled() {
         return Err(CANCELLED.to_owned());
     }
 
     progress.stage.store(STAGE_ANALYZING, Ordering::Relaxed);
-    let decimal_fallback = match loaded.info.delimiter {
-        Some(b';') => DecimalSep::Comma,
+    // Planilhas são exibidas com vírgula decimal (como no Excel em português).
+    let decimal_fallback = match (loaded.info.format, loaded.info.delimiter) {
+        (FileFormat::Workbook, _) | (_, Some(b';')) => DecimalSep::Comma,
         _ => DecimalSep::Dot,
     };
     analyze_columns(&mut loaded.table, decimal_fallback);
@@ -106,6 +124,17 @@ fn io_error(path: &Path, e: &io::Error) -> String {
         io::ErrorKind::PermissionDenied => format!("Sem permissão para ler {name}"),
         _ => format!("Não foi possível ler {name}: {e}"),
     }
+}
+
+fn has_workbook_magic(path: &Path) -> bool {
+    let mut head = [0u8; 8];
+    let Ok(mut f) = File::open(path) else {
+        return false;
+    };
+    if f.read_exact(&mut head).is_err() {
+        return false;
+    }
+    head.starts_with(b"PK\x03\x04") || head == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
 }
 
 /// Leitor que conta bytes lidos para a barra de progresso.
@@ -399,6 +428,210 @@ fn finish_columns(builders: Vec<ColumnBuilder>, rows: usize, header: &[String]) 
 }
 
 // ---------------------------------------------------------------------------
+// Excel / ODS
+
+fn load_workbook(path: &Path, opts: &LoadOptions, progress: &Progress) -> Result<Loaded, String> {
+    let mut wb = calamine::open_workbook_auto(path).map_err(|e| workbook_error(&e))?;
+    let sheets = wb.sheet_names();
+    if sheets.is_empty() {
+        return Err("A planilha não tem nenhuma aba.".to_owned());
+    }
+    let sheet = opts
+        .sheet
+        .clone()
+        .filter(|s| sheets.contains(s))
+        .unwrap_or_else(|| sheets[0].clone());
+    let range = wb
+        .worksheet_range(&sheet)
+        .map_err(|e| workbook_error(&e))?;
+    if progress.cancelled() {
+        return Err(CANCELLED.to_owned());
+    }
+    progress.bytes.store(
+        progress.total.load(Ordering::Relaxed) / 2,
+        Ordering::Relaxed,
+    );
+
+    let (height, width) = range.get_size();
+    let mut builders: Vec<ColumnBuilder> = (0..width)
+        .map(|_| ColumnBuilder::new(String::new()))
+        .collect();
+    let mut header: Vec<String> = Vec::new();
+    let mut rows = 0usize;
+    let mut text = String::new();
+    for (r, row) in range.rows().enumerate() {
+        if r == 0 && opts.has_header {
+            header = row
+                .iter()
+                .map(|c| {
+                    text.clear();
+                    format_cell(c, &mut text);
+                    text.trim().to_owned()
+                })
+                .collect();
+            continue;
+        }
+        for (c, cell) in row.iter().enumerate() {
+            text.clear();
+            format_cell(cell, &mut text);
+            builders[c]
+                .push(&text)
+                .map_err(|_| "Planilha grande demais.".to_owned())?;
+        }
+        rows += 1;
+        if rows.is_multiple_of(8192) {
+            progress.rows.store(rows as u64, Ordering::Relaxed);
+            if progress.cancelled() {
+                return Err(CANCELLED.to_owned());
+            }
+            let frac = 0.5 + 0.5 * (r as f64 / height.max(1) as f64);
+            progress.bytes.store(
+                (progress.total.load(Ordering::Relaxed) as f64 * frac) as u64,
+                Ordering::Relaxed,
+            );
+        }
+    }
+    progress.rows.store(rows as u64, Ordering::Relaxed);
+
+    // Remove linhas vazias no fim (comuns em planilhas formatadas).
+    let columns = finish_columns(builders, rows, &header);
+    let mut table = Table { columns, rows };
+    trim_trailing_empty_rows(&mut table);
+
+    Ok(Loaded {
+        table,
+        info: SourceInfo {
+            path: path.to_path_buf(),
+            format: FileFormat::Workbook,
+            encoding: None,
+            delimiter: None,
+            sheets,
+            sheet: Some(sheet),
+            file_size: 0,
+            load_time: Default::default(),
+            ragged_rows: 0,
+        },
+    })
+}
+
+fn trim_trailing_empty_rows(table: &mut Table) {
+    let mut rows = table.rows;
+    while rows > 0 && table.columns.iter().all(|c| c.is_empty_at(rows - 1)) {
+        rows -= 1;
+    }
+    if rows == table.rows {
+        return;
+    }
+    // Reconstrói as colunas só com as linhas mantidas.
+    let cols = std::mem::take(&mut table.columns);
+    table.columns = cols
+        .into_iter()
+        .map(|c| {
+            let mut b = ColumnBuilder::new(c.name.clone());
+            for r in 0..rows {
+                let _ = b.push(c.get(r));
+            }
+            b.finish()
+        })
+        .collect();
+    table.rows = rows;
+}
+
+fn workbook_error(e: &dyn std::fmt::Display) -> String {
+    let msg = e.to_string();
+    if msg.contains("password") || msg.contains("Password") || msg.contains("encrypted") {
+        "A planilha está protegida por senha.".to_owned()
+    } else if msg.contains("Cannot detect file format") {
+        "Formato de planilha não reconhecido.".to_owned()
+    } else {
+        format!("Não foi possível abrir a planilha: {msg}")
+    }
+}
+
+/// Converte uma célula do Excel em texto, no formato brasileiro para datas.
+fn format_cell(cell: &Data, out: &mut String) {
+    use std::fmt::Write;
+    match cell {
+        Data::Empty => {}
+        Data::String(s) => out.push_str(s),
+        Data::Int(i) => {
+            let _ = write!(out, "{i}");
+        }
+        Data::Float(f) => format_float(*f, out),
+        Data::Bool(b) => out.push_str(if *b { "VERDADEIRO" } else { "FALSO" }),
+        Data::DateTime(dt) => {
+            if dt.is_duration() {
+                let secs = (dt.as_f64() * 86_400.0).round() as i64;
+                let (sign, secs) = if secs < 0 { ("-", -secs) } else { ("", secs) };
+                let _ = write!(
+                    out,
+                    "{sign}{}:{:02}:{:02}",
+                    secs / 3600,
+                    (secs / 60) % 60,
+                    secs % 60
+                );
+            } else if let Some(ndt) = dt.as_datetime() {
+                let v = dt.as_f64();
+                if (0.0..1.0).contains(&v) {
+                    let _ = write!(out, "{}", ndt.format("%H:%M:%S"));
+                } else if v.fract() == 0.0 {
+                    let _ = write!(out, "{}", ndt.format("%d/%m/%Y"));
+                } else if ndt.format("%S").to_string() == "00" {
+                    let _ = write!(out, "{}", ndt.format("%d/%m/%Y %H:%M"));
+                } else {
+                    let _ = write!(out, "{}", ndt.format("%d/%m/%Y %H:%M:%S"));
+                }
+            } else {
+                format_float(dt.as_f64(), out);
+            }
+        }
+        Data::DateTimeIso(s) | Data::DurationIso(s) => out.push_str(s),
+        Data::Error(e) => {
+            let _ = write!(out, "{e}");
+        }
+    }
+}
+
+/// Mostra floats como o Excel em português: vírgula decimal e no máximo
+/// 15 dígitos significativos.
+fn format_float(f: f64, out: &mut String) {
+    let start = out.len();
+    format_float_dot(f, out);
+    if let Some(i) = out[start..].find('.') {
+        out.replace_range(start + i..start + i + 1, ",");
+    }
+}
+
+fn format_float_dot(f: f64, out: &mut String) {
+    use std::fmt::Write;
+    if !f.is_finite() {
+        let _ = write!(out, "{f}");
+        return;
+    }
+    if f.fract() == 0.0 && f.abs() < 1e15 {
+        let _ = write!(out, "{}", f as i64);
+        return;
+    }
+    if f.abs() >= 1e15 || (f != 0.0 && f.abs() < 1e-9) {
+        let _ = write!(out, "{f:e}");
+        return;
+    }
+    let int_digits = if f.abs() < 1.0 {
+        0
+    } else {
+        f.abs().log10().floor() as i32 + 1
+    };
+    let prec = (15 - int_digits).clamp(0, 15) as usize;
+    let s = format!("{f:.prec$}");
+    let s = if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        &s
+    };
+    out.push_str(s);
+}
+
+// ---------------------------------------------------------------------------
 // Análise de tipos
 
 fn analyze_columns(table: &mut Table, decimal_fallback: DecimalSep) {
@@ -527,5 +760,18 @@ mod tests {
         assert_eq!(loaded.table.cell(0, 0), "São Paulo");
         assert_eq!(loaded.table.cell(1, 0), "Belém");
         assert_eq!(loaded.table.rows, 2);
+    }
+
+    #[test]
+    fn formata_float_como_excel() {
+        let mut s = String::new();
+        format_float(0.1 + 0.2, &mut s);
+        assert_eq!(s, "0,3");
+        s.clear();
+        format_float(1234.5678, &mut s);
+        assert_eq!(s, "1234,5678");
+        s.clear();
+        format_float(42.0, &mut s);
+        assert_eq!(s, "42");
     }
 }
