@@ -1,4 +1,5 @@
 mod data;
+mod document;
 mod format;
 mod icon;
 mod theme;
