@@ -9,16 +9,26 @@ name = "csv_viwer"
 path = "src/main.rs"
 
 [dependencies]
+eframe = { version = "0.36", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "persistence",
+    "wayland",
+    "x11",
+] }
 egui = "0.36"
 egui-phosphor = "0.14"
 calamine = { version = "0.38", features = ["dates"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 csv = "1.4"
+rfd = "0.17"
 encoding_rs = "0.8"
 chardetng = "1.0"
 rayon = "1.12"
 memchr = "2.8"
 rustc-hash = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 png = "0.18"
 
 [features]
