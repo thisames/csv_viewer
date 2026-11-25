@@ -9,3 +9,4 @@ name = "csv_viwer"
 path = "src/main.rs"
 
 [dependencies]
+memchr = "2.8"
