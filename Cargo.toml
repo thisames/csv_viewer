@@ -9,6 +9,8 @@ name = "csv_viwer"
 path = "src/main.rs"
 
 [dependencies]
+egui = "0.36"
+egui-phosphor = "0.14"
 calamine = { version = "0.38", features = ["dates"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 csv = "1.4"
