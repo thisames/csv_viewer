@@ -9,4 +9,7 @@ name = "csv_viwer"
 path = "src/main.rs"
 
 [dependencies]
+csv = "1.4"
+encoding_rs = "0.8"
+chardetng = "1.0"
 memchr = "2.8"
