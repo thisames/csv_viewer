@@ -11,6 +11,8 @@ mod devshot;
 mod document;
 mod format;
 mod icon;
+#[cfg(target_os = "macos")]
+mod macos;
 mod theme;
 mod ui;
 
@@ -67,6 +69,8 @@ fn main() -> eframe::Result {
     if let Some(state) = std::env::var_os("CSV_VIWER_STATE") {
         options.persistence_path = Some(PathBuf::from(state));
     }
+    #[cfg(target_os = "macos")]
+    macos::install();
 
     eframe::run_native(
         "csv_viwer",

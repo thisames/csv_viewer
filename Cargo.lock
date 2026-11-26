@@ -510,6 +510,8 @@ dependencies = [
  "egui-phosphor",
  "encoding_rs",
  "memchr",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
  "png",
  "rayon",
  "rfd",

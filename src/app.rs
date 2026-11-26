@@ -130,6 +130,8 @@ impl App {
         for f in files {
             app.open_path(f, ctx);
         }
+        #[cfg(target_os = "macos")]
+        crate::macos::set_context(ctx);
         app
     }
 
@@ -336,6 +338,10 @@ impl App {
                 .collect()
         });
         for p in dropped {
+            self.open_path(p, ctx);
+        }
+        #[cfg(target_os = "macos")]
+        for p in crate::macos::take_opened_files() {
             self.open_path(p, ctx);
         }
     }
