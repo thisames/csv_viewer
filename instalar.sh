@@ -12,6 +12,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# No macOS a instalação é um pacote .app (ver macos/instalar.sh).
+if [ "$(uname -s)" = Darwin ]; then
+    exec ./macos/instalar.sh "$@"
+fi
+
 BIN_DIR="$HOME/.local/bin"
 APP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor"

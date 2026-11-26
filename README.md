@@ -41,7 +41,16 @@ cargo run --release -- caminho/arquivo.csv
 ./instalar.sh --remover  # desinstala
 ```
 
+No **macOS** o mesmo `./instalar.sh` monta o `Visualizador de Planilhas.app` em
+`~/Applications`: aparece no Launchpad e no Spotlight, e no “Abrir com” do
+Finder para CSV, TSV, Excel e ODS (arquivos abertos pelo Finder viram abas na
+janela que já está aberta). O macOS não tem um comando para trocar o programa
+padrão; para abrir CSV com duplo clique, selecione um `.csv` no Finder,
+Cmd+I › “Abrir com” › Visualizador de Planilhas › “Alterar Tudo…”.
+
 ## Atalhos
+
+No macOS, Ctrl é Cmd.
 
 | Atalho | Ação |
 | --- | --- |
@@ -70,7 +79,9 @@ src/
   format.rs      números/datas no padrão brasileiro
   data/          leitura, detecção de tipos, busca, filtros, estatísticas, exportação
   ui/            grade virtualizada, painel lateral, telas iniciais, componentes
+  macos.rs       arquivos abertos pelo Finder (só no macOS)
   devshot.rs     (feature `devshot`) prints automáticos para testes visuais
+macos/           Info.plist e instalar.sh do pacote .app
 ```
 
 Testes: `cargo test`.

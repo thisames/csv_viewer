@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Modelo do Info.plist do pacote .app; @ID@ e @VERSAO@ são trocados por macos/instalar.sh. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Visualizador de Planilhas</string>
+	<key>CFBundleDisplayName</key>
+	<string>Visualizador de Planilhas</string>
+	<key>CFBundleIdentifier</key>
+	<string>@ID@</string>
+	<key>CFBundleExecutable</key>
+	<string>csv_viwer</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSAO@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSAO@</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>pt-BR</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- OpenGL: deixa usar a GPU integrada em vez de forçar a dedicada. -->
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<!-- "Abrir com" no Finder. Alternate: aparece na lista sem virar o padrão. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Texto separado (CSV, TSV)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.comma-separated-values-text</string>
+				<string>public.tab-separated-values-text</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Planilha do Excel</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.openxmlformats.spreadsheetml.sheet</string>
+				<string>org.openxmlformats.spreadsheetml.sheet.macroenabled</string>
+				<string>com.microsoft.excel.sheet.binary.macroenabled</string>
+				<string>com.microsoft.excel.xls</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Planilha OpenDocument</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.oasis-open.opendocument.spreadsheet</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
